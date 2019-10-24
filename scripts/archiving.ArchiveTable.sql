@@ -2,7 +2,7 @@ if exists(select name from sys.procedures where object_id = object_id('archiving
 	drop procedure archiving.ArchiveTable;
 GO
 
-create procedure archiving.ArchiveTable
+CREATE procedure [archiving].[ArchiveTable]
 	@serverName nvarchar(128),
 	@databaseName nvarchar(128),
 	@schemaName nvarchar(128),
@@ -21,7 +21,6 @@ begin try
 		drop table #toArchive;
 
 	create table #toArchive (
-		id int not null identity(1,1),
 		Lvl int not null,
 
 		BaseTabSchema nvarchar(128) not null,
@@ -34,7 +33,7 @@ begin try
 
 		WhereClause nvarchar(max) not null
 	);
-	create unique clustered index cidx on #toArchive (lvl, id);
+	create clustered index cidx on #toArchive (lvl);
 		
 	insert into #toArchive (Lvl, BaseTabSchema, BaseTabName, BaseTabEx, ParentTabSchema, ParentTabName, ParentTabEx, WhereClause)
 	exec archiving.getRemoteDependencies
@@ -44,44 +43,53 @@ begin try
 		, @tableName = @tableName
 		, @FilterClause = @filterClause
 		, @dryRun = @dryRun
-
 	declare 
-		  @id int
-		, @Lvl int
+		  @Lvl int
 		, @BaseTabSchema nvarchar(128)
 		, @BaseTabName   nvarchar(128)
 		, @BaseTabEx nvarchar(1000)
-		, @ParentTabSchema nvarchar(128)
-		, @ParentTabName   nvarchar(128)
-		, @ParentTabEx nvarchar(1000)
+		--, @ParentTabSchema nvarchar(128)
+		--, @ParentTabName   nvarchar(128)
+		--, @ParentTabEx nvarchar(1000)
 		, @WhereClause nvarchar(max)
 		, @columnList nvarchar(max) 
 
 	declare @sql nvarchar(max)
 	declare @innerSql nvarchar(max)
-
 	
 	begin transaction;
+	DECLARE tabs CURSOR FOR 
+			SELECT DISTINCT 
+				lvl
+				, BaseTabSchema
+				, BaseTabName
+				, BaseTabEx
+				, WhereClause
+			FROM 
+				#toArchive
+			ORDER BY lvl desc
+	open tabs
 	while 1=1
 	begin
-		select top 1
-			  @id = id
-			, @lvl = lvl
+		--select top 1
+		--	  @id = id
+		--	, @lvl = lvl
 			
-			, @BaseTabSchema = BaseTabSchema
-			, @BaseTabName = BaseTabName
-			, @BaseTabEx = BaseTabEx
+		--	, @BaseTabSchema = BaseTabSchema
+		--	, @BaseTabName = BaseTabName
+		--	, @BaseTabEx = BaseTabEx
 
-			, @ParentTabSchema = ParentTabSchema
-			, @ParentTabName = ParentTabName
-			, @ParentTabEx = ParentTabEx
+		--	--, @ParentTabSchema = ParentTabSchema
+		--	--, @ParentTabName = ParentTabName
+		--	--, @ParentTabEx = ParentTabEx
 			
-			, @WhereClause = WhereClause
-		from 
-			#toArchive
-		where 
-			@id is null or id > @id
-		order by id;
+		--	, @WhereClause = WhereClause
+		--from 
+		--	#toArchive
+		--where 
+		--	@id is null or id > @id
+		--order by id;
+		fetch next from tabs into @lvl, @basetabschema, @basetabname, @basetabex, @whereclause
 
 		if @@rowcount = 0 
 			break;
@@ -107,12 +115,16 @@ begin try
 		else
 			exec sp_executesql @sql, N'@innerSql nvarchar(max)', @innerSql = @innerSql;
 	end
-
+	close tabs;
+	deallocate tabs;
 	commit;
 end try
 begin catch
+	print @innerSql
+	print @sql
 	if @@TRANCOUNT > 0
 		rollback;
 	throw;
 end catch
-go
+GO
+

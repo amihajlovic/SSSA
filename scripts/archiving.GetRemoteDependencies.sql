@@ -2,7 +2,7 @@ if exists(select name from sys.procedures where object_id = object_id('archiving
 	drop procedure archiving.GetRemoteDependencies;
 GO
 
-create proc archiving.GetRemoteDependencies
+CREATE proc [archiving].[GetRemoteDependencies]
 	  @serverName	nvarchar(128)
 	, @databaseName nvarchar(128)
 	, @schemaName	nvarchar(128)
@@ -52,11 +52,12 @@ with base as (
     )
 ,recursioned as (
     select
+		DISTINCT
 		  BaseTabSchema
 		, BaseTabName
         , BaseTabEx 
-		, ParentTabSchema
-		, ParentTabName
+		, cast(NULL as sysname) ParentTabSchema
+		, cast(NULL as sysname) ParentTabName
         , 1 as Lvl
         , CONVERT(nvarchar(4000), '' where '' + @FilterClause) as WhereClause    
         , CONVERT(nvarchar(1000), null) as ParentTabEx    
@@ -72,13 +73,7 @@ with base as (
 		, d.ParentTabSchema
 		, d.ParentTabName
         , r.Lvl + 1 as Lvl
-        , CONVERT(nvarchar(4000), 
-                            case r.Lvl when 1 then
-                                '' where ['' + BaseTabCol + ''] '' + @FilterClause
-                            else
-                                '' where ['' + BaseTabCol + ''] in (select ['' + ParentTabCol + ''] from '' + d.ParentTabEx + '' '' + r.WhereClause + '')''
-                            end
-                            ) WhereClause    
+        , CONVERT(nvarchar(4000), '' where ['' + BaseTabCol + ''] in (select ['' + ParentTabCol + ''] from '' + d.ParentTabEx + '' '' + r.WhereClause + '')'') WhereClause    
         , CONVERT(nvarchar(1000), d.ParentTabEx) as ParentTabEx 
     from 
         base d
@@ -133,4 +128,5 @@ exec sp_executesql
 	, @innerSql = @innerSql
 	, @RootTableEx = @RootTableEx
 	, @FilterClause = @FilterClause
-go
+GO
+

@@ -2,7 +2,7 @@ if exists(select name from sys.procedures where object_id = object_id('archiving
 	drop procedure archiving.GetRemoteColumns;
 GO
 
-create proc archiving.CompareTableDefinitions
+create proc [archiving].[CompareTableDefinitions]
 	@serverName nvarchar(128)
 	, @databaseName nvarchar(128)
 	, @schemaName nvarchar(128)
@@ -253,3 +253,4 @@ DECLARE @nullDropedColumnsSql nvarchar(max) =
 		exec sp_executesql @nullDropedColumnsSql
 	end
 GO
+

@@ -2,7 +2,7 @@ if exists(select name from sys.procedures where object_id = object_id('archiving
 	drop procedure archiving.GetRemoteColumns;
 GO
 
-create proc archiving.GetRemoteColumns
+create proc [archiving].[GetRemoteColumns]
 	@serverName nvarchar(128)
 	, @databaseName nvarchar(128)
 	, @schemaName nvarchar(128)
@@ -46,3 +46,4 @@ exec sp_executesql @sql
 	, @tableName = @tableName
 	, @columnList = @columnList out;
 GO
+
