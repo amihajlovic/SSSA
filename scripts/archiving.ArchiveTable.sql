@@ -7,14 +7,17 @@ CREATE procedure [archiving].[ArchiveTable]
 	@databaseName nvarchar(128),
 	@schemaName nvarchar(128),
 	@tableName nvarchar(128),
-
 	@filterClause nvarchar(max),
-	@dryRun bit = 0
+	@expectedRc int,
+	@runId bigint out,
+	@dryRun bit = null out
 as
 begin try
 	set nocount on;
+	declare @procStartTs datetime2(2) = getdate();
+	declare @rc int = 0;
+	declare @totalRc int = 0;
 
-	
 	declare @RootTableEx  nvarchar(1000) = concat(quotename(@schemaName), '.', quotename(@tableName))
 	
 	if object_id ('tempdb..#toArchive') is not null
@@ -43,14 +46,12 @@ begin try
 		, @tableName = @tableName
 		, @FilterClause = @filterClause
 		, @dryRun = @dryRun
+
 	declare 
 		  @Lvl int
 		, @BaseTabSchema nvarchar(128)
 		, @BaseTabName   nvarchar(128)
 		, @BaseTabEx nvarchar(1000)
-		--, @ParentTabSchema nvarchar(128)
-		--, @ParentTabName   nvarchar(128)
-		--, @ParentTabEx nvarchar(1000)
 		, @WhereClause nvarchar(max)
 		, @columnList nvarchar(max) 
 
@@ -71,28 +72,11 @@ begin try
 	open tabs
 	while 1=1
 	begin
-		--select top 1
-		--	  @id = id
-		--	, @lvl = lvl
-			
-		--	, @BaseTabSchema = BaseTabSchema
-		--	, @BaseTabName = BaseTabName
-		--	, @BaseTabEx = BaseTabEx
-
-		--	--, @ParentTabSchema = ParentTabSchema
-		--	--, @ParentTabName = ParentTabName
-		--	--, @ParentTabEx = ParentTabEx
-			
-		--	, @WhereClause = WhereClause
-		--from 
-		--	#toArchive
-		--where 
-		--	@id is null or id > @id
-		--order by id;
 		fetch next from tabs into @lvl, @basetabschema, @basetabname, @basetabex, @whereclause
-
 		if @@rowcount = 0 
 			break;
+
+		declare @tabStartTs datetime2(2) = getdate();
 
 		exec archiving.CompareTableDefinitions @serverName = @serverName, @databaseName = @databaseName, @schemaName = @BaseTabSchema, @tableName = @BaseTabName, @dryrun = @dryrun;
 		exec archiving.GetRemoteColumns @serverName = @serverName, @databaseName = @databaseName, @schemaName = @BaseTabSchema, @tableName = @BaseTabName, @columnList = @columnList out, @dryrun = @dryrun;
@@ -101,8 +85,6 @@ begin try
 			SELECT ', @columnList, ' FROM ', @BaseTabEx, ' with(updlock) ', @whereClause, ';
 			DELETE FROM ', @BaseTabEx, ' ', @whereClause, ';');
 		set @sql = concat('
-		
-		
 		insert into ', @BaseTabEx, '(', @columnList, ')
 		exec ', quotename(@serverName), '.', quotename(@databaseName),'.dbo.sp_executesql @innerSql
 		');
@@ -113,18 +95,49 @@ begin try
 			print @sql
 		end
 		else
+		begin
 			exec sp_executesql @sql, N'@innerSql nvarchar(max)', @innerSql = @innerSql;
+			set @rc = @@ROWCOUNT;
+			set @totalRc += @rc;
+
+			exec archiving.log 
+					@runId = @runId out,
+					@startTs = @tabStartTs,
+					@rootTable = @RootTableEx,
+					@referencingTable = @BaseTabEx,
+					@rowcount = @rc,
+					@message = 'Delete - Insert';
+
+
+			if @Lvl = 1 AND @rc <> @expectedRc
+				raiserror('Expected count not equal to archived rc. Rolling back.', 16, 16);
+		end
+
 	end
 	close tabs;
 	deallocate tabs;
+	exec archiving.log 
+			@runId = @runId out,
+			@startTs = @procStartTs,
+			@rootTable = @RootTableEx,
+			@rowcount = @totalRc,
+			@message = 'Root table done';
+
 	commit;
 end try
 begin catch
-	print @innerSql
-	print @sql
+	declare @errorMessage nvarchar(max) = error_message();
 	if @@TRANCOUNT > 0
 		rollback;
+	exec archiving.log 
+					@runId = @runId out,
+					@startTs = @procStartTs,
+					@rootTable = @RootTableEx,
+					@referencingTable = @BaseTabEx,
+					@rowcount = @rc,
+					@error = 1,
+					@message = @errorMessage,
+					@command = @innerSql;
 	throw;
 end catch
 GO
-
